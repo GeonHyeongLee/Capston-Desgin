@@ -1,0 +1,75 @@
+# 훈련 시간 : 7시간
+# 하이퍼파라미터 : 기본 설정에서 Learning Rate 0.0003로 변경
+# Action Space Type : Continous
+
+import math
+
+def reward_function(params):
+    '''
+    Example of rewarding the agent to follow center line
+    '''
+
+    # Read input parameters
+    track_width = params['track_width']
+    distance_from_center = params['distance_from_center']
+    all_wheels_on_track = params['all_wheels_on_track']
+    waypoints = params['waypoints']
+    heading = params['heading']
+    speed = params['speed']
+    abs_steering = abs(params['steering_angle'])
+    MAX_SPEED = 4
+    is_left_of_center = params['is_left_of_center']
+    # waypoint파라미터 추가
+    waypoints = params['waypoints']
+    closest_waypoints = params['closest_waypoints']   
+    # 가장 가까운 웨이포인트 계산
+    next_point = waypoints[closest_waypoints[1]]
+    prev_point = waypoints[closest_waypoints[0]]
+    
+    # 웨이포인트 간 예상 경로의 방향 계산
+    track_direction = math.atan2(next_point[1] - prev_point[1], next_point[0]- prev_point[0])
+    track_direction = math.degrees(track_direction)
+    
+    # 방향 차이 계산
+    direction_diff = abs(track_direction - heading)
+    if direction_diff > 180:
+        direction_diff = 360 - direction_diff
+    
+    # smoothness 보상 로직
+    # 방향 차이가 적을수록 높은 보상을 준다
+    reward = max(1.0 - (direction_diff/30.0), 0.01) # 방향 차이 30도 이상 시 최소 보상
+    
+    # 속도 조절을 통한 부드러운 주행 보상
+    if speed < 2.5:
+        reward *= 0.5  # 속도가 너무 느릴 경우 보상 감소
+    elif speed > 3.5:
+        reward *= 0.5  # 속도가 너무 빠를 경우 보상 감소
+    
+    # marker 0.5 * track_width 이상일 때 reward 줌
+    marker = 0.5 * track_width
+    
+    # Give higher reward if the car is closer to center line and vice versa
+    # RC 차량이 트랙 중앙을 너무 벗어나지 않게 설정
+    if distance_from_center <= marker:
+        reward = reward + 1.0
+        
+    # 속도 임계점 1을 설정하여 이것보다 빠를 때 reward를 준다
+    SPEED_THRESHOLD = 2
+    if speed < SPEED_THRESHOLD:
+        reward *= 1.2
+    else:
+        reward *= 0.8
+
+    # 조향각 임계점을 15도로 설정하여 이것보다 클 때 pentaly부여
+    ABS_STEERING_THRESHOLD = 15.0
+    if abs_steering > ABS_STEERING_THRESHOLD:
+       reward *= 0.8
+
+     # 직선 코스일 때는 최대한 빠르게 주행 -> 주행 각도가 작을수록 빠른 속도 유지
+    if abs_steering < 5:
+        speed = MAX_SPEED
+        if is_left_of_center == True:
+            reward = reward + 1.0
+
+
+    return float(reward)

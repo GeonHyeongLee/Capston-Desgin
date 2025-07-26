@@ -1,0 +1,136 @@
+# 훈련시간 : 7시간
+# 하이퍼파라미터 설정 : 기본
+# Action Space Type : Continous
+
+
+import math
+
+class PARAMS:
+    prev_speed = None
+    prev_steering_angle = None 
+    prev_steps = None
+    prev_direction_diff = None
+    prev_normalized_distance_from_route = None
+
+#hyperparameter(experience decision required)
+turning_degree = 30
+DIRECTION_THRESHOLD = 20.0
+
+def reward_function(params):
+    
+    # Read input variables
+    waypoints = params['waypoints']
+    closest_waypoints = params['closest_waypoints']
+    heading = params['heading']
+    track_width = params['track_width']
+    distance_from_center = params['distance_from_center']
+    steering_angle = params['steering_angle']
+    speed = params['speed']
+    allwheel = params['all_wheels_on_track']
+    out_track = params['is_offtrack']
+    
+    # Calculate the direction of the center line based on the closest waypoints
+    next_point = waypoints[closest_waypoints[1]]
+    prev_point = waypoints[closest_waypoints[0]]
+
+    # Calculate the direction in radius, arctan2(dy, dx), the result is (-pi, pi) in radians
+    track_direction = math.atan2(next_point[1] - prev_point[1], next_point[0] - prev_point[0])
+    # Convert to degree
+    track_direction = math.degrees(track_direction)
+    direction_diff = abs(track_direction - heading)
+    if direction_diff > 180:
+        direction_diff = 360- direction_diff
+        
+     #Check if the speed has dropped
+    has_speed_dropped = False
+    if PARAMS.prev_speed is not None:
+        if PARAMS.prev_speed > speed:
+            has_speed_dropped = True
+            
+    #check if the direction is turning
+    is_turn_upcoming= False
+    if abs(track_direction) > turning_degree: 
+        is_turn_upcoming = True
+    
+    #Penalize slowing down without good reason on straight portions
+    if has_speed_dropped and not is_turn_upcoming: 
+        speed_maintain_bonus = min( speed / PARAMS.prev_speed, 1 )
+        
+    #has the steering angle changed
+    has_steering_angle_changed = False
+    if PARAMS.prev_steering_angle is not None:
+        if not(math.isclose(PARAMS.prev_steering_angle,steering_angle)):
+            has_steering_angle_changed = True
+    
+    #check is_heading_in_right_direction (need analysis)
+    is_heading_in_right_direction = True
+    if steering_angle*track_direction <0:
+        is_heading_in_right_direction = False
+    
+        #Penalize making the heading direction worse
+    heading_decrease_bonus = 0
+    if PARAMS.prev_direction_diff is not None:
+        if is_heading_in_right_direction:
+            if abs( PARAMS.prev_direction_diff / direction_diff ) > 1:
+                heading_decrease_bonus = min(2, abs( PARAMS.prev_direction_diff / direction_diff ))
+    
+    #immediate direction
+    direction_diff_point=0
+    if direction_diff>60:
+        direction_diff_point = -1
+    if direction_diff_point <30:
+        direction_diff_point = 1
+    
+    #has the steering angle changed
+    has_steering_angle_changed = False
+    if PARAMS.prev_steering_angle is not None:
+        if not(math.isclose(PARAMS.prev_steering_angle,steering_angle)):
+            has_steering_angle_changed = True
+            
+    steering_angle_maintain_bonus = 1 
+    #Not changing the steering angle is a good thing if heading in the right direction
+    if is_heading_in_right_direction and not has_steering_angle_changed:
+        if abs(direction_diff) < 10:
+            steering_angle_maintain_bonus *= 2
+        if abs(direction_diff) < 5:
+            steering_angle_maintain_bonus *= 2
+        if PARAMS.prev_direction_diff is not None and abs(PARAMS.prev_direction_diff) > abs(direction_diff):
+            steering_angle_maintain_bonus *= 2
+            
+    #normalized_distance_from_route Calculate        
+    normalized_distance_from_route = math.sqrt((next_point[1] - prev_point[1])**2+(next_point[0] - prev_point[0])**2)
+     
+    #Reward reducing distance to the race line
+    distance_reduction_bonus = 1
+    if PARAMS.prev_normalized_distance_from_route is not None and PARAMS.prev_normalized_distance_from_route > normalized_distance_from_route:
+        if abs(normalized_distance_from_route) > 0:
+            distance_reduction_bonus = min( abs( PARAMS.prev_normalized_distance_from_route / normalized_distance_from_route ), 1)
+    SPD=0
+    if PARAMS.prev_speed is not None:
+        SPD = max(1,(speed/PARAMS.prev_speed))
+                
+    # Before returning reward, update the variables
+    PARAMS.prev_speed = speed
+    PARAMS.prev_steering_angle = steering_angle
+    PARAMS.prev_direction_diff = direction_diff
+    PARAMS.prev_normalized_distance_from_route = normalized_distance_from_route    
+    #need safety
+    center_bonus=0
+    if is_turn_upcoming is True:
+        if distance_from_center>track_width/2:
+            center_bonus = 2
+    else:
+        if distance_from_center<track_width/2:
+            center_bonus = 1
+    
+    stay_bonus= 0
+    if allwheel is False:
+        stay_bonus = 1        
+    if out_track is True:
+        stay_bonus = -5        
+    
+    #reward
+    reward= steering_angle_maintain_bonus/2-distance_reduction_bonus+SPD-heading_decrease_bonus/2+center_bonus+stay_bonus+speed+direction_diff_point
+    
+    return float(reward)
+
